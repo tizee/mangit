@@ -3,7 +3,6 @@
 `mangit` is a command-line tool that helps you manage, search, and navigate your local Git repositories using tags and metadata rather than relying solely on directory structure.
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![Version](https://img.shields.io/badge/version-0.1.0-green.svg)
 
 ## Motivation
 
