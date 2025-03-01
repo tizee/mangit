@@ -1,4 +1,5 @@
 mod config;
+mod repository;
 mod storage;
 
 use anyhow::{anyhow, Result};
@@ -44,10 +45,10 @@ enum Commands {
         tags: String,
     },
 
-    /// Search for repos by tag
+    /// Search for repos by tag or multiple tags
     Search {
-        /// Tag to search for
-        tag: String,
+        /// Tag(s) to search for (comma separated)
+        tags: String,
     },
 
     /// Access a repo (updates frecency)
@@ -133,12 +134,23 @@ fn run() -> Result<()> {
             }
         },
 
-        Commands::Search { tag } => {
+        Commands::Search { tags } => {
             let mut storage = Storage::new(&config)?;
-            let matches = storage.search_by_tag(&tag);
+            let tag_list = parse_tags(&tags);
+
+            if tag_list.is_empty() {
+                println!("No tags specified for search");
+                return Ok(());
+            }
+
+            let matches = storage.search_by_tags(&tag_list);
 
             if matches.is_empty() {
-                println!("No repos found with tag: {}", tag);
+                if tag_list.len() == 1 {
+                    println!("No repos found with tag: {}", tag_list[0]);
+                } else {
+                    println!("No repos found with all tags: {}", tags);
+                }
             } else {
                 // Simple output, one path per line for easy integration with tools like fzf
                 for path in matches {
@@ -171,8 +183,6 @@ fn run() -> Result<()> {
                 Ok(count) => {
                     if let Some(p) = path {
                         if count > 0 {
-                            println!("Reset frequency for repo: {}", p);
-                        } else {
                             println!("Repo not found: {}", p);
                         }
                     } else {

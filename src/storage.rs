@@ -192,15 +192,24 @@ impl Storage {
         }
     }
 
-    /// Searches for repos by tag, returns paths sorted by frecency
-    pub fn search_by_tag(&mut self, tag: &str) -> Vec<String> {
-        let tag = tag.to_lowercase();
+    /// Searches for repos by tags, returns paths sorted by frecency
+    pub fn search_by_tags(&mut self, tags: &[String]) -> Vec<String> {
+        if tags.is_empty() {
+            return Vec::new();
+        }
+
+        // Convert tags to lowercase for case-insensitive matching
+        let tags_lower: Vec<String> = tags.iter()
+            .map(|tag| tag.to_lowercase())
+            .collect();
 
         // Collect matching repos and their frecency scores
         let mut matches: Vec<(String, f64)> = self.repos
             .iter_mut()
             .filter(|(_, repo_access)| {
-                repo_access.tags.iter().any(|t| t.to_lowercase() == tag)
+                tags_lower.iter().all(|search_tag| {
+                    repo_access.tags.iter().any(|t| t.to_lowercase() == *search_tag)
+                })
             })
             .map(|(path, repo_access)| {
                 // Record access for each viewed repo
@@ -214,6 +223,11 @@ impl Storage {
 
         // Return just the paths
         matches.into_iter().map(|(path, _)| path).collect()
+    }
+
+    /// Searches for repos by a single tag (for backward compatibility)
+    pub fn search_by_tag(&mut self, tag: &str) -> Vec<String> {
+        self.search_by_tags(&[tag.to_string()])
     }
 
     /// Removes repos with non-existent paths
@@ -426,6 +440,55 @@ mod tests {
         // Test searching by non-existent tag
         let empty_repos = storage.search_by_tag("nonexistent");
         assert_eq!(empty_repos.len(), 0);
+    }
+
+    #[test]
+    fn test_search_by_tags() {
+        let (config, temp_dir) = create_test_config();
+        let repo1 = create_fake_repo(&temp_dir.path().join("repo1"));
+        let repo2 = create_fake_repo(&temp_dir.path().join("repo2"));
+        let repo3 = create_fake_repo(&temp_dir.path().join("repo3"));
+
+        let mut storage = Storage::new(&config).unwrap();
+
+        // Add repos with different tags
+        storage.add_repo(
+            repo1.to_str().unwrap(),
+            vec!["rust".to_string(), "cli".to_string()]
+        ).unwrap();
+
+        storage.add_repo(
+            repo2.to_str().unwrap(),
+            vec!["rust".to_string(), "web".to_string()]
+        ).unwrap();
+
+        storage.add_repo(
+            repo3.to_str().unwrap(),
+            vec!["python".to_string(), "cli".to_string()]
+        ).unwrap();
+
+        // Test searching by multiple tags
+        let rust_cli_repos = storage.search_by_tags(&[
+            "rust".to_string(),
+            "cli".to_string()
+        ]);
+        assert_eq!(rust_cli_repos.len(), 1);
+        assert_eq!(rust_cli_repos[0], repo1.to_str().unwrap().to_string());
+
+        // Test searching by tags where no repo has all tags
+        let no_match_repos = storage.search_by_tags(&[
+            "rust".to_string(),
+            "python".to_string()
+        ]);
+        assert_eq!(no_match_repos.len(), 0);
+
+        // Test case insensitivity
+        let case_insensitive = storage.search_by_tags(&[
+            "RUST".to_string(),
+            "cli".to_string()
+        ]);
+        assert_eq!(case_insensitive.len(), 1);
+        assert_eq!(case_insensitive[0], repo1.to_str().unwrap().to_string());
     }
 
     #[test]
