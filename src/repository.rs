@@ -13,12 +13,7 @@ pub struct Repository {
 }
 
 impl Repository {
-    pub fn new(
-        name: String,
-        path: String,
-        tags: Vec<String>,
-        description: String,
-    ) -> Self {
+    pub fn new(name: String, path: String, tags: Vec<String>, description: String) -> Self {
         Repository {
             name,
             path,
@@ -66,7 +61,11 @@ impl Repository {
                 return true;
             }
 
-            if self.tags.iter().any(|tag| tag.to_lowercase().contains(token)) {
+            if self
+                .tags
+                .iter()
+                .any(|tag| tag.to_lowercase().contains(token))
+            {
                 return true;
             }
 
@@ -111,7 +110,12 @@ mod tests_repository {
         let description = "A test repository".to_string();
 
         // Act
-        let repo = Repository::new(name.clone(), path.clone(), tags.clone(), description.clone());
+        let repo = Repository::new(
+            name.clone(),
+            path.clone(),
+            tags.clone(),
+            description.clone(),
+        );
 
         // Assert
         assert_eq!(repo.name, name);
@@ -129,7 +133,11 @@ mod tests_repository {
         // Create a Cargo.toml file
         let cargo_path = temp_dir.path().join("Cargo.toml");
         let mut cargo_file = fs::File::create(cargo_path).unwrap();
-        writeln!(cargo_file, "[package]\nname = \"test\"\nversion = \"0.1.0\"").unwrap();
+        writeln!(
+            cargo_file,
+            "[package]\nname = \"test\"\nversion = \"0.1.0\""
+        )
+        .unwrap();
 
         // Create a repository
         let mut repo = Repository::new(

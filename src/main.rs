@@ -1,180 +1,218 @@
-use anyhow::Result;
-use clap::{Parser, Subcommand};
-use std::process;
-
 mod config;
-mod repository;
 mod storage;
-mod commands;
 
-use commands::{
-    init::init,
-    add::add,
-    remove::remove,
-    list::list,
-    search::search,
-    info::info,
-    update::update
-};
+use anyhow::{anyhow, Result};
+use clap::{Parser, Subcommand};
+use config::Config;
+use storage::Storage;
 
-#[derive(Parser)]
-#[command(name = "mangit")]
-#[command(about = "Manage your Git repositories", long_about = None)]
+#[derive(Parser, Debug)]
+#[clap(author, version, about = "Manage Git repositories with tags")]
 struct Cli {
-    #[command(subcommand)]
+    #[clap(subcommand)]
     command: Commands,
 }
 
-#[derive(Subcommand)]
+#[derive(Subcommand, Debug)]
 enum Commands {
     /// Initialize mangit
     Init,
 
-    /// Add a repository
+    /// Add a repo with tags
     Add {
-        /// Path to the repository
+        /// Path to repository
         path: String,
 
-        /// Name of the repository
-        #[arg(short, long)]
-        name: Option<String>,
-
-        /// Tags (comma separated)
-        #[arg(short, long)]
-        tags: Option<String>,
-
-        /// Description
-        #[arg(short, long, value_name = "DESC")]
-        desc: Option<String>,
+        /// Tags for the repository (comma separated)
+        #[clap(short, long)]
+        tags: String,
     },
 
-    /// Remove a repository
-    Remove {
-        /// Name or ID of the repository
-        name_or_id: String,
+    /// Delete a repo
+    Delete {
+        /// Path to repository
+        path: String,
     },
 
-    /// List repositories
-    List {
-        /// Filter by tags (comma separated)
-        #[arg(long)]
-        tags: Option<String>,
-
-        /// Sort by field
-        #[arg(long)]
-        sort: Option<String>,
-    },
-
-    /// Search repositories
-    Search {
-        /// Search query
-        query: String,
-    },
-
-    /// Show repository information
-    Info {
-        /// Name or ID of the repository
-        name_or_id: String,
-    },
-
-    /// Update repository metadata
+    /// Update a repo's tags
     Update {
-        /// Name or ID of the repository (optional)
-        name_or_id: Option<String>,
+        /// Path to repository
+        path: String,
+
+        /// New tags for the repository (comma separated)
+        #[clap(short, long)]
+        tags: String,
+    },
+
+    /// Search for repos by tag
+    Search {
+        /// Tag to search for
+        tag: String,
+    },
+
+    /// Access a repo (updates frecency)
+    Access {
+        /// Path to repository
+        path: String,
+    },
+
+    /// Reset frequency data for a repo or all repos
+    Reset {
+        /// Path to repository (if not provided, resets all repos)
+        #[clap(short, long)]
+        path: Option<String>,
     },
 }
 
-fn run_command(command: &Commands) -> Result<()> {
-    match command {
-        Commands::Init => init(),
-        Commands::Add { path, name, tags, desc } => {
-            add(path, name.clone(), tags.clone(), desc.clone())
+fn parse_tags(tags_str: &str) -> Vec<String> {
+    tags_str
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
+fn run() -> Result<()> {
+    let cli = Cli::parse();
+    let config = Config::default();
+
+    match cli.command {
+        Commands::Init => {
+            config.ensure_mangit_dir()?;
+            let storage = Storage::new(&config)?;
+            storage.save(&config)?;
+            println!("Initialized mangit at {}", config.mangit_dir);
+            Ok(())
         },
-        Commands::Remove { name_or_id } => remove(name_or_id),
-        Commands::List { tags, sort } => list(tags.clone(), sort.clone()),
-        Commands::Search { query } => search(query),
-        Commands::Info { name_or_id } => info(name_or_id),
-        Commands::Update { name_or_id } => update(name_or_id.clone()),
+
+        Commands::Add { path, tags } => {
+            let mut storage = Storage::new(&config)?;
+            let tags = parse_tags(&tags);
+
+            match storage.add_repo(&path, tags) {
+                Ok(true) => {
+                    println!("Added repo: {}", path);
+                    storage.save(&config)?;
+                    Ok(())
+                },
+                Ok(false) => {
+                    println!("Updated existing repo: {}", path);
+                    storage.save(&config)?;
+                    Ok(())
+                },
+                Err(e) => Err(anyhow!("Failed to add repo: {}", e)),
+            }
+        },
+
+        Commands::Delete { path } => {
+            let mut storage = Storage::new(&config)?;
+
+            match storage.delete_repo(&path) {
+                Ok(true) => {
+                    println!("Deleted repo: {}", path);
+                    storage.save(&config)?;
+                    Ok(())
+                },
+                Ok(false) => Err(anyhow!("Repo not found: {}", path)),
+                Err(e) => Err(anyhow!("Failed to delete repo: {}", e)),
+            }
+        },
+
+        Commands::Update { path, tags } => {
+            let mut storage = Storage::new(&config)?;
+            let tags = parse_tags(&tags);
+
+            match storage.update_repo(&path, tags) {
+                Ok(true) => {
+                    println!("Updated repo: {}", path);
+                    storage.save(&config)?;
+                    Ok(())
+                },
+                Ok(false) => Err(anyhow!("Repo not found: {}", path)),
+                Err(e) => Err(anyhow!("Failed to update repo: {}", e)),
+            }
+        },
+
+        Commands::Search { tag } => {
+            let mut storage = Storage::new(&config)?;
+            let matches = storage.search_by_tag(&tag);
+
+            if matches.is_empty() {
+                println!("No repos found with tag: {}", tag);
+            } else {
+                // Simple output, one path per line for easy integration with tools like fzf
+                for path in matches {
+                    println!("{}", path);
+                }
+                // Save after search to update frecency data
+                storage.save(&config)?;
+            }
+
+            Ok(())
+        },
+
+        Commands::Access { path } => {
+            let mut storage = Storage::new(&config)?;
+
+            match storage.record_access(&path) {
+                Ok(true) => {
+                    storage.save(&config)?;
+                    Ok(())
+                },
+                Ok(false) => Err(anyhow!("Repo not found: {}", path)),
+                Err(e) => Err(anyhow!("Failed to access repo: {}", e)),
+            }
+        },
+
+        Commands::Reset { path } => {
+            let mut storage = Storage::new(&config)?;
+
+            match storage.reset_frequency(path.as_deref()) {
+                Ok(count) => {
+                    if let Some(p) = path {
+                        if count > 0 {
+                            println!("Reset frequency for repo: {}", p);
+                        } else {
+                            println!("Repo not found: {}", p);
+                        }
+                    } else {
+                        println!("Reset frequency for {} repos", count);
+                    }
+                    storage.save(&config)?;
+                    Ok(())
+                },
+                Err(e) => Err(anyhow!("Failed to reset frequency: {}", e)),
+            }
+        },
     }
 }
 
-fn main() -> Result<()> {
-    let cli = Cli::parse();
-
-    match run_command(&cli.command) {
-        Ok(_) => Ok(()),
-        Err(e) => {
-            eprintln!("Error: {}", e);
-            process::exit(1);
-        }
+fn main() {
+    if let Err(e) = run() {
+        eprintln!("Error: {}", e);
+        std::process::exit(1);
     }
 }
 
 #[cfg(test)]
-mod tests_main {
+mod tests {
     use super::*;
-    use clap::CommandFactory;
 
     #[test]
-    fn test_cli_commands() {
-        // Check that CLI parser is configured correctly
-        let cli = Cli::command();
+    fn test_parse_tags() {
+        let tags = parse_tags("rust,cli,tool");
+        assert_eq!(tags, vec!["rust", "cli", "tool"]);
 
-        // Verify expected commands are available
-        let all_commands = cli.get_subcommands().collect::<Vec<_>>();
+        // Test with spaces
+        let tags = parse_tags("rust, cli, tool");
+        assert_eq!(tags, vec!["rust", "cli", "tool"]);
 
-        assert!(all_commands.iter().any(|cmd| cmd.get_name() == "init"));
-        assert!(all_commands.iter().any(|cmd| cmd.get_name() == "add"));
-        assert!(all_commands.iter().any(|cmd| cmd.get_name() == "remove"));
-        assert!(all_commands.iter().any(|cmd| cmd.get_name() == "list"));
-        assert!(all_commands.iter().any(|cmd| cmd.get_name() == "search"));
-        assert!(all_commands.iter().any(|cmd| cmd.get_name() == "info"));
-        assert!(all_commands.iter().any(|cmd| cmd.get_name() == "update"));
-    }
+        // Test with empty parts
+        let tags = parse_tags("rust,,cli");
+        assert_eq!(tags, vec!["rust", "cli"]);
 
-    // Test parsing of different commands
-    #[test]
-    fn test_parse_init_command() {
-        let args = vec!["mangit", "init"];
-        let cli = Cli::parse_from(args);
-
-        match cli.command {
-            Commands::Init => (), // Success
-            _ => panic!("Wrong command parsed"),
-        }
-    }
-
-    #[test]
-    fn test_parse_add_command() {
-        let args = vec![
-            "mangit", "add", "/path/to/repo",
-            "--name", "test-repo",
-            "--tags", "rust,cli",
-            "--desc", "Test repository"
-        ];
-        let cli = Cli::parse_from(args);
-
-        match cli.command {
-            Commands::Add { path, name, tags, desc } => {
-                assert_eq!(path, "/path/to/repo");
-                assert_eq!(name, Some("test-repo".to_string()));
-                assert_eq!(tags, Some("rust,cli".to_string()));
-                assert_eq!(desc, Some("Test repository".to_string()));
-            },
-            _ => panic!("Wrong command parsed"),
-        }
-    }
-
-    #[test]
-    fn test_parse_remove_command() {
-        let args = vec!["mangit", "remove", "test-repo"];
-        let cli = Cli::parse_from(args);
-
-        match cli.command {
-            Commands::Remove { name_or_id } => {
-                assert_eq!(name_or_id, "test-repo");
-            },
-            _ => panic!("Wrong command parsed"),
-        }
+        // Test with empty string
+        let tags = parse_tags("");
+        assert_eq!(tags.len(), 0);
     }
 }
