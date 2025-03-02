@@ -2,7 +2,7 @@ mod config;
 mod repository;
 mod storage;
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use clap::{Parser, Subcommand};
 use config::Config;
 use storage::Storage;
@@ -63,6 +63,9 @@ enum Commands {
         #[clap(short, long)]
         path: Option<String>,
     },
+
+    /// List all tags with their usage counts
+    Tags,
 }
 
 fn parse_tags(tags_str: &str) -> Vec<String> {
@@ -84,7 +87,7 @@ fn run() -> Result<()> {
             storage.save(&config)?;
             println!("Initialized mangit at {}", config.mangit_dir);
             Ok(())
-        },
+        }
 
         Commands::Add { path, tags } => {
             let mut storage = Storage::new(&config)?;
@@ -95,15 +98,15 @@ fn run() -> Result<()> {
                     println!("Added repo: {}", path);
                     storage.save(&config)?;
                     Ok(())
-                },
+                }
                 Ok(false) => {
                     println!("Updated existing repo: {}", path);
                     storage.save(&config)?;
                     Ok(())
-                },
+                }
                 Err(e) => Err(anyhow!("Failed to add repo: {}", e)),
             }
-        },
+        }
 
         Commands::Delete { path } => {
             let mut storage = Storage::new(&config)?;
@@ -113,11 +116,11 @@ fn run() -> Result<()> {
                     println!("Deleted repo: {}", path);
                     storage.save(&config)?;
                     Ok(())
-                },
+                }
                 Ok(false) => Err(anyhow!("Repo not found: {}", path)),
                 Err(e) => Err(anyhow!("Failed to delete repo: {}", e)),
             }
-        },
+        }
 
         Commands::Update { path, tags } => {
             let mut storage = Storage::new(&config)?;
@@ -128,11 +131,11 @@ fn run() -> Result<()> {
                     println!("Updated repo: {}", path);
                     storage.save(&config)?;
                     Ok(())
-                },
+                }
                 Ok(false) => Err(anyhow!("Repo not found: {}", path)),
                 Err(e) => Err(anyhow!("Failed to update repo: {}", e)),
             }
-        },
+        }
 
         Commands::Search { tags } => {
             let mut storage = Storage::new(&config)?;
@@ -161,7 +164,7 @@ fn run() -> Result<()> {
             }
 
             Ok(())
-        },
+        }
 
         Commands::Access { path } => {
             let mut storage = Storage::new(&config)?;
@@ -170,11 +173,11 @@ fn run() -> Result<()> {
                 Ok(true) => {
                     storage.save(&config)?;
                     Ok(())
-                },
+                }
                 Ok(false) => Err(anyhow!("Repo not found: {}", path)),
                 Err(e) => Err(anyhow!("Failed to access repo: {}", e)),
             }
-        },
+        }
 
         Commands::Reset { path } => {
             let mut storage = Storage::new(&config)?;
@@ -190,10 +193,31 @@ fn run() -> Result<()> {
                     }
                     storage.save(&config)?;
                     Ok(())
-                },
+                }
                 Err(e) => Err(anyhow!("Failed to reset frequency: {}", e)),
             }
-        },
+        }
+
+        Commands::Tags => {
+            let storage = Storage::new(&config)?;
+            let all_tags = storage.get_all_tags();
+
+            if all_tags.is_empty() {
+                println!("No tags found in any repositories");
+                return Ok(());
+            }
+
+            // Convert to sorted vec for consistent output
+            let mut tag_counts: Vec<(String, usize)> = all_tags.into_iter().collect();
+            tag_counts.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+
+            println!("All tags (tag: count):");
+            for (tag, count) in tag_counts {
+                println!("{}: {}", tag, count);
+            }
+
+            Ok(())
+        }
     }
 }
 
@@ -205,7 +229,7 @@ fn main() {
 }
 
 #[cfg(test)]
-mod tests {
+mod tests_main {
     use super::*;
 
     #[test]

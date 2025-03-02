@@ -48,7 +48,7 @@ pub fn is_git_repo(path: &Path) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
+mod tests_config {
     use super::*;
     use tempfile::tempdir;
 

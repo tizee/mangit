@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -81,10 +81,9 @@ impl Storage {
 
         let repos_path = config.repos_path();
         if repos_path.exists() {
-            let data = fs::read_to_string(&repos_path)
-                .context("Failed to read repos file")?;
-            let storage: Storage = serde_json::from_str(&data)
-                .context("Failed to parse repos file")?;
+            let data = fs::read_to_string(&repos_path).context("Failed to read repos file")?;
+            let storage: Storage =
+                serde_json::from_str(&data).context("Failed to parse repos file")?;
 
             // Return a cleaned up storage (removing non-existent paths)
             let mut storage = storage;
@@ -98,10 +97,8 @@ impl Storage {
     /// Saves the current storage state to disk
     pub fn save(&self, config: &Config) -> Result<()> {
         let repos_path = config.repos_path();
-        let json = serde_json::to_string_pretty(self)
-            .context("Failed to serialize storage")?;
-        fs::write(&repos_path, json)
-            .context("Failed to write repos file")?;
+        let json = serde_json::to_string_pretty(self).context("Failed to serialize storage")?;
+        fs::write(&repos_path, json).context("Failed to write repos file")?;
         Ok(())
     }
 
@@ -111,8 +108,7 @@ impl Storage {
         if path_buf.is_absolute() {
             Ok(path_buf.to_string_lossy().to_string())
         } else {
-            let current_dir = env::current_dir()
-                .context("Failed to get current directory")?;
+            let current_dir = env::current_dir().context("Failed to get current directory")?;
             let abs_path = current_dir.join(path_buf);
             Ok(abs_path.to_string_lossy().to_string())
         }
@@ -180,7 +176,7 @@ impl Storage {
                 } else {
                     Ok(0)
                 }
-            },
+            }
             None => {
                 // Reset frequency for all repos
                 let count = self.repos.len();
@@ -199,16 +195,18 @@ impl Storage {
         }
 
         // Convert tags to lowercase for case-insensitive matching
-        let tags_lower: Vec<String> = tags.iter()
-            .map(|tag| tag.to_lowercase())
-            .collect();
+        let tags_lower: Vec<String> = tags.iter().map(|tag| tag.to_lowercase()).collect();
 
         // Collect matching repos and their frecency scores
-        let mut matches: Vec<(String, f64)> = self.repos
+        let mut matches: Vec<(String, f64)> = self
+            .repos
             .iter_mut()
             .filter(|(_, repo_access)| {
                 tags_lower.iter().all(|search_tag| {
-                    repo_access.tags.iter().any(|t| t.to_lowercase() == *search_tag)
+                    repo_access
+                        .tags
+                        .iter()
+                        .any(|t| t.to_lowercase() == *search_tag)
                 })
             })
             .map(|(path, repo_access)| {
@@ -234,16 +232,29 @@ impl Storage {
     pub fn cleanup(&mut self) {
         self.repos.retain(|path, _| Path::new(path).exists());
     }
+
+    /// Returns a map of all tags and their usage counts
+    pub fn get_all_tags(&self) -> HashMap<String, usize> {
+        let mut tag_counts = HashMap::new();
+
+        for repo_access in self.repos.values() {
+            for tag in &repo_access.tags {
+                *tag_counts.entry(tag.clone()).or_insert(0) += 1;
+            }
+        }
+
+        tag_counts
+    }
 }
 
 #[cfg(test)]
-mod tests {
+mod tests_storage {
     use super::*;
-    use tempfile::tempdir;
     use std::fs::File;
     use std::io::Write;
     use std::thread::sleep;
     use std::time::Duration as StdDuration;
+    use tempfile::tempdir;
 
     fn create_test_config() -> (Config, tempfile::TempDir) {
         let temp_dir = tempdir().unwrap();
@@ -274,19 +285,20 @@ mod tests {
         let repo_path = create_fake_repo(temp_dir.path());
 
         let mut storage = Storage::new(&config).unwrap();
-        let is_new = storage.add_repo(
-            repo_path.to_str().unwrap(),
-            vec!["test".to_string(), "rust".to_string()]
-        ).unwrap();
+        let is_new = storage
+            .add_repo(
+                repo_path.to_str().unwrap(),
+                vec!["test".to_string(), "rust".to_string()],
+            )
+            .unwrap();
 
         assert!(is_new);
         assert_eq!(storage.repos.len(), 1);
 
         // Test adding the same repo again
-        let is_new = storage.add_repo(
-            repo_path.to_str().unwrap(),
-            vec!["updated".to_string()]
-        ).unwrap();
+        let is_new = storage
+            .add_repo(repo_path.to_str().unwrap(), vec!["updated".to_string()])
+            .unwrap();
 
         assert!(!is_new);
         assert_eq!(storage.repos.len(), 1);
@@ -302,10 +314,9 @@ mod tests {
         let repo_path = create_fake_repo(temp_dir.path());
 
         let mut storage = Storage::new(&config).unwrap();
-        storage.add_repo(
-            repo_path.to_str().unwrap(),
-            vec!["test".to_string()]
-        ).unwrap();
+        storage
+            .add_repo(repo_path.to_str().unwrap(), vec!["test".to_string()])
+            .unwrap();
 
         assert_eq!(storage.repos.len(), 1);
 
@@ -324,23 +335,29 @@ mod tests {
         let repo_path = create_fake_repo(temp_dir.path());
 
         let mut storage = Storage::new(&config).unwrap();
-        storage.add_repo(
-            repo_path.to_str().unwrap(),
-            vec!["initial".to_string()]
-        ).unwrap();
+        storage
+            .add_repo(repo_path.to_str().unwrap(), vec!["initial".to_string()])
+            .unwrap();
 
-        let updated = storage.update_repo(
-            repo_path.to_str().unwrap(),
-            vec!["updated".to_string(), "tags".to_string()]
-        ).unwrap();
+        let updated = storage
+            .update_repo(
+                repo_path.to_str().unwrap(),
+                vec!["updated".to_string(), "tags".to_string()],
+            )
+            .unwrap();
 
         assert!(updated);
 
         let repo_access = storage.repos.get(repo_path.to_str().unwrap()).unwrap();
-        assert_eq!(repo_access.tags, vec!["updated".to_string(), "tags".to_string()]);
+        assert_eq!(
+            repo_access.tags,
+            vec!["updated".to_string(), "tags".to_string()]
+        );
 
         // Test updating non-existent repo
-        let updated = storage.update_repo("non-existent-path", vec!["tag".to_string()]).unwrap();
+        let updated = storage
+            .update_repo("non-existent-path", vec!["tag".to_string()])
+            .unwrap();
         assert!(!updated);
     }
 
@@ -350,10 +367,9 @@ mod tests {
         let repo_path = create_fake_repo(temp_dir.path());
 
         let mut storage = Storage::new(&config).unwrap();
-        storage.add_repo(
-            repo_path.to_str().unwrap(),
-            vec!["test".to_string()]
-        ).unwrap();
+        storage
+            .add_repo(repo_path.to_str().unwrap(), vec!["test".to_string()])
+            .unwrap();
 
         // Record some accesses
         for _ in 0..3 {
@@ -366,7 +382,9 @@ mod tests {
         assert!(repo_access.access_times.len() > 1);
 
         // Reset frequency for the specific repo
-        let reset_count = storage.reset_frequency(Some(repo_path.to_str().unwrap())).unwrap();
+        let reset_count = storage
+            .reset_frequency(Some(repo_path.to_str().unwrap()))
+            .unwrap();
         assert_eq!(reset_count, 1);
 
         // Verify that access times were reset
@@ -375,10 +393,9 @@ mod tests {
 
         // Test resetting all repos
         let repo2 = create_fake_repo(&temp_dir.path().join("repo2"));
-        storage.add_repo(
-            repo2.to_str().unwrap(),
-            vec!["test".to_string()]
-        ).unwrap();
+        storage
+            .add_repo(repo2.to_str().unwrap(), vec!["test".to_string()])
+            .unwrap();
 
         // Record more accesses
         for _ in 0..2 {
@@ -407,20 +424,26 @@ mod tests {
         let mut storage = Storage::new(&config).unwrap();
 
         // Add repos with different tags
-        storage.add_repo(
-            repo1.to_str().unwrap(),
-            vec!["rust".to_string(), "cli".to_string()]
-        ).unwrap();
+        storage
+            .add_repo(
+                repo1.to_str().unwrap(),
+                vec!["rust".to_string(), "cli".to_string()],
+            )
+            .unwrap();
 
-        storage.add_repo(
-            repo2.to_str().unwrap(),
-            vec!["rust".to_string(), "web".to_string()]
-        ).unwrap();
+        storage
+            .add_repo(
+                repo2.to_str().unwrap(),
+                vec!["rust".to_string(), "web".to_string()],
+            )
+            .unwrap();
 
-        storage.add_repo(
-            repo3.to_str().unwrap(),
-            vec!["python".to_string(), "cli".to_string()]
-        ).unwrap();
+        storage
+            .add_repo(
+                repo3.to_str().unwrap(),
+                vec!["python".to_string(), "cli".to_string()],
+            )
+            .unwrap();
 
         // Test searching by tag
         let rust_repos = storage.search_by_tag("rust");
@@ -452,41 +475,38 @@ mod tests {
         let mut storage = Storage::new(&config).unwrap();
 
         // Add repos with different tags
-        storage.add_repo(
-            repo1.to_str().unwrap(),
-            vec!["rust".to_string(), "cli".to_string()]
-        ).unwrap();
+        storage
+            .add_repo(
+                repo1.to_str().unwrap(),
+                vec!["rust".to_string(), "cli".to_string()],
+            )
+            .unwrap();
 
-        storage.add_repo(
-            repo2.to_str().unwrap(),
-            vec!["rust".to_string(), "web".to_string()]
-        ).unwrap();
+        storage
+            .add_repo(
+                repo2.to_str().unwrap(),
+                vec!["rust".to_string(), "web".to_string()],
+            )
+            .unwrap();
 
-        storage.add_repo(
-            repo3.to_str().unwrap(),
-            vec!["python".to_string(), "cli".to_string()]
-        ).unwrap();
+        storage
+            .add_repo(
+                repo3.to_str().unwrap(),
+                vec!["python".to_string(), "cli".to_string()],
+            )
+            .unwrap();
 
         // Test searching by multiple tags
-        let rust_cli_repos = storage.search_by_tags(&[
-            "rust".to_string(),
-            "cli".to_string()
-        ]);
+        let rust_cli_repos = storage.search_by_tags(&["rust".to_string(), "cli".to_string()]);
         assert_eq!(rust_cli_repos.len(), 1);
         assert_eq!(rust_cli_repos[0], repo1.to_str().unwrap().to_string());
 
         // Test searching by tags where no repo has all tags
-        let no_match_repos = storage.search_by_tags(&[
-            "rust".to_string(),
-            "python".to_string()
-        ]);
+        let no_match_repos = storage.search_by_tags(&["rust".to_string(), "python".to_string()]);
         assert_eq!(no_match_repos.len(), 0);
 
         // Test case insensitivity
-        let case_insensitive = storage.search_by_tags(&[
-            "RUST".to_string(),
-            "cli".to_string()
-        ]);
+        let case_insensitive = storage.search_by_tags(&["RUST".to_string(), "cli".to_string()]);
         assert_eq!(case_insensitive.len(), 1);
         assert_eq!(case_insensitive[0], repo1.to_str().unwrap().to_string());
     }
@@ -500,15 +520,13 @@ mod tests {
         let mut storage = Storage::new(&config).unwrap();
 
         // Add repos with the same tag
-        storage.add_repo(
-            repo1.to_str().unwrap(),
-            vec!["common".to_string()]
-        ).unwrap();
+        storage
+            .add_repo(repo1.to_str().unwrap(), vec!["common".to_string()])
+            .unwrap();
 
-        storage.add_repo(
-            repo2.to_str().unwrap(),
-            vec!["common".to_string()]
-        ).unwrap();
+        storage
+            .add_repo(repo2.to_str().unwrap(), vec!["common".to_string()])
+            .unwrap();
 
         // Access repo2 more frequently
         for _ in 0..3 {
@@ -529,16 +547,15 @@ mod tests {
         let repo_path = create_fake_repo(temp_dir.path());
 
         let mut storage = Storage::new(&config).unwrap();
-        storage.add_repo(
-            repo_path.to_str().unwrap(),
-            vec!["test".to_string()]
-        ).unwrap();
+        storage
+            .add_repo(repo_path.to_str().unwrap(), vec!["test".to_string()])
+            .unwrap();
 
         // Add a non-existent path directly to the HashMap
         let non_existent = "/path/does/not/exist";
         storage.repos.insert(
             non_existent.to_string(),
-            RepoAccess::new(vec!["fake".to_string()])
+            RepoAccess::new(vec!["fake".to_string()]),
         );
 
         assert_eq!(storage.repos.len(), 2);
@@ -559,10 +576,12 @@ mod tests {
 
         // Create and save storage
         let mut storage = Storage::new(&config).unwrap();
-        storage.add_repo(
-            repo_path.to_str().unwrap(),
-            vec!["test".to_string(), "save".to_string()]
-        ).unwrap();
+        storage
+            .add_repo(
+                repo_path.to_str().unwrap(),
+                vec!["test".to_string(), "save".to_string()],
+            )
+            .unwrap();
 
         storage.save(&config).unwrap();
 
@@ -570,11 +589,60 @@ mod tests {
         let loaded_storage = Storage::new(&config).unwrap();
 
         assert_eq!(loaded_storage.repos.len(), 1);
-        assert!(loaded_storage.repos.contains_key(repo_path.to_str().unwrap()));
+        assert!(
+            loaded_storage
+                .repos
+                .contains_key(repo_path.to_str().unwrap())
+        );
 
-        let loaded_tags = &loaded_storage.repos.get(repo_path.to_str().unwrap()).unwrap().tags;
+        let loaded_tags = &loaded_storage
+            .repos
+            .get(repo_path.to_str().unwrap())
+            .unwrap()
+            .tags;
         assert_eq!(loaded_tags.len(), 2);
         assert!(loaded_tags.contains(&"test".to_string()));
         assert!(loaded_tags.contains(&"save".to_string()));
+    }
+
+    #[test]
+    fn test_get_all_tags() {
+        let (config, temp_dir) = create_test_config();
+        let repo1 = create_fake_repo(&temp_dir.path().join("repo1"));
+        let repo2 = create_fake_repo(&temp_dir.path().join("repo2"));
+        let repo3 = create_fake_repo(&temp_dir.path().join("repo3"));
+
+        let mut storage = Storage::new(&config).unwrap();
+
+        // Add repos with different tags
+        storage
+            .add_repo(
+                repo1.to_str().unwrap(),
+                vec!["rust".to_string(), "cli".to_string()],
+            )
+            .unwrap();
+
+        storage
+            .add_repo(
+                repo2.to_str().unwrap(),
+                vec!["rust".to_string(), "web".to_string()],
+            )
+            .unwrap();
+
+        storage
+            .add_repo(
+                repo3.to_str().unwrap(),
+                vec!["python".to_string(), "cli".to_string()],
+            )
+            .unwrap();
+
+        // Test get_all_tags
+        let all_tags = storage.get_all_tags();
+
+        assert_eq!(all_tags.len(), 4);
+        assert_eq!(all_tags.get("rust"), Some(&2));
+        assert_eq!(all_tags.get("cli"), Some(&2));
+        assert_eq!(all_tags.get("web"), Some(&1));
+        assert_eq!(all_tags.get("python"), Some(&1));
     }
 }
